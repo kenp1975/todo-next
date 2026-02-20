@@ -1,82 +1,71 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { TodoHeader } from "@/components/todo-header";
 import { TodoFilter } from "@/components/todo-filter";
 import { TodoList } from "@/components/todo-list";
 import type { Todo, Filter } from "@/types/todo";
 
+const STORAGE_KEY = "todos";
+
+function loadTodos(): Todo[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Todo[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTodos(todos: Todo[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+}
+
 export function TodoPage() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
-  const [loading, setLoading] = useState(true);
-  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
-
-  const fetchTodos = useCallback(async () => {
-    const res = await fetch("/api/todos");
-    const data: Todo[] = await res.json();
-    setTodos(data);
-  }, []);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    fetchTodos().finally(() => setLoading(false));
-  }, [fetchTodos]);
+    setTodos(loadTodos());
+    setMounted(true);
+  }, []);
 
-  function setPending(id: number, on: boolean) {
-    setPendingIds((prev) => {
-      const next = new Set(prev);
-      on ? next.add(id) : next.delete(id);
-      return next;
-    });
+  function updateTodos(next: Todo[]) {
+    setTodos(next);
+    saveTodos(next);
   }
 
-  async function handleAdd(title: string) {
-    const res = await fetch("/api/todos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-    if (res.ok) {
-      const todo: Todo = await res.json();
-      setTodos((prev) => [todo, ...prev]);
-    }
+  function handleAdd(title: string) {
+    const now = new Date().toISOString();
+    const todo: Todo = {
+      id: Date.now(),
+      title,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    updateTodos([todo, ...todos]);
   }
 
-  async function handleToggle(id: number, completed: boolean) {
-    setPending(id, true);
-    const res = await fetch(`/api/todos/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed }),
-    });
-    if (res.ok) {
-      const updated: Todo = await res.json();
-      setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    }
-    setPending(id, false);
+  function handleToggle(id: number, completed: boolean) {
+    updateTodos(
+      todos.map((t) =>
+        t.id === id ? { ...t, completed, updatedAt: new Date().toISOString() } : t
+      )
+    );
   }
 
-  async function handleDelete(id: number) {
-    setPending(id, true);
-    const res = await fetch(`/api/todos/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setTodos((prev) => prev.filter((t) => t.id !== id));
-    }
-    setPending(id, false);
+  function handleDelete(id: number) {
+    updateTodos(todos.filter((t) => t.id !== id));
   }
 
-  async function handleEdit(id: number, title: string) {
-    setPending(id, true);
-    const res = await fetch(`/api/todos/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-    if (res.ok) {
-      const updated: Todo = await res.json();
-      setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    }
-    setPending(id, false);
+  function handleEdit(id: number, title: string) {
+    updateTodos(
+      todos.map((t) =>
+        t.id === id ? { ...t, title, updatedAt: new Date().toISOString() } : t
+      )
+    );
   }
 
   const filtered = todos.filter((t) => {
@@ -93,8 +82,8 @@ export function TodoPage() {
       </div>
       <TodoList
         todos={filtered}
-        loading={loading}
-        pendingIds={pendingIds}
+        loading={!mounted}
+        pendingIds={new Set()}
         onToggle={handleToggle}
         onDelete={handleDelete}
         onEdit={handleEdit}
